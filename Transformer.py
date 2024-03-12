@@ -91,11 +91,12 @@ class TextDataset(Dataset):
         
         id2word = {v: k for k, v in word2id.items()}
         
-        for word in tqdm(text_data.tolist()):
-            if word not in word2id:
-                id = len(word2id)
-                word2id[word] = id
-                id2word[id] = word
+        for words1, words2 in tqdm(text_data):
+            for word in (words1 + words2):
+                if word not in word2id:
+                    id = len(word2id)
+                    word2id[word] = id
+                    id2word[id] = word
         
         return word2id, id2word
     
