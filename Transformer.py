@@ -187,6 +187,7 @@ class PositionalEncoder(nn.Module):
     
     def to(self, device):
         self.pe = self.pe.to(device)
+        return super().to(device)
     
     def forward(self, x):
         return math.sqrt(self.vocab_size) * x + self.pe
@@ -224,12 +225,11 @@ class Embedding(nn.Module):
 
 
 class Attention(nn.Module):
-    def __init__(self, dim, tri_mask=False, cross=False, heads=8, dim_head=64, dropout=0.):
+    def __init__(self, dim, cross=False, heads=8, dim_head=64, dropout=0.):
         super().__init__()
         
         self.heads = heads
         self.scale = dim_head ** -0.5
-        self.tri_mask=tri_mask
         
         inner_dim = dim_head * heads
         self.to_query = nn.Linear(dim, inner_dim, bias = False)
@@ -244,7 +244,7 @@ class Attention(nn.Module):
             nn.Dropout(dropout)
         ) if not (heads == 1 and dim_head == dim) else nn.Identity()
         
-    def forward(self, x, kv=None, return_attention=False):
+    def forward(self, x, kv=None, mask=None, return_attention=False):
         query = self.to_query(x)
         if kv != None:
             key = value = kv
@@ -257,11 +257,9 @@ class Attention(nn.Module):
         value = rearrange(value, 'b n (h d) -> b h n d', h = self.heads)
         
         attention_score = torch.matmul(query, key.transpose(-1, -2)) * self.scale
-        if self.tri_mask:
-            mask = torch.triu(torch.ones(attention_score.size(-2), attention_score.size(-1))).transpose(0, 1)
-            mask = mask.masked_fill(mask==0, float('-inf')).masked_fill(mask==1, float(0.0))
-            mask = mask.to(attention_score.device)
-            attention_score += mask
+        
+        if mask is not None:
+            attention_score = attention_score.masked_fill(mask==0, float('-inf'))
         
         attention_prob = F.softmax(attention_score, dim=-1)
         attention_prob = self.dropout(attention_prob)
@@ -337,19 +335,18 @@ class Decoder(nn.Module):
         self.layers = nn.ModuleList([])
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
-                PreNorm(dim, Attention(dim, tri_mask=True, heads=heads, dim_head=dim_head, dropout=dropout)),
+                PreNorm(dim, Attention(dim, heads=heads, dim_head=dim_head, dropout=dropout)),
                 PreNorm(dim, Attention(dim, cross=True, heads=heads, dim_head=dim_head, dropout=dropout)),
                 PreNorm(dim, FeedForward(dim, mlp_dim, dropout=dropout))
             ]))
-        self.linear = nn.Linear(dim, vocab_size)
-            
+    
     def forward(self, x, kv):
+        tri_mask = torch.triu(torch.ones(x.size(-2), x.size(-2))).transpose(1, 0).to(x.device)
         for attention, cross_attention, feedforward in self.layers:
-            x = attention(x) + x
+            x = attention(x, mask=tri_mask) + x
             x = cross_attention(x, kv=kv) + x
             x = feedforward(x) + x
-        out = self.linear(x)
-        return out
+        return x
 
 
 # In[ ]:
@@ -362,18 +359,19 @@ class Transformer(nn.Module):
         self.embedding = Embedding(vocab_size, sentence_size, dim, emb_dropout)
         self.encoder = Encoder(dim, mlp_dim, dropout=dropout)
         self.decoder = Decoder(dim, mlp_dim, vocab_size, dropout=dropout)
+        self.linear = nn.Linear(dim, vocab_size) # トークン出力分布
     
     def to(self, *args, **kwargs):
-        super().to(*args, **kwargs)
         self.embedding.position_embedding.to(args[0])
-        return self
+        return super().to(*args, **kwargs)
     
     def forward(self, x, y):
         x = self.embedding(x)
         y = self.embedding(y)
         enc = self.encoder(x)
         dec = self.decoder(y, enc)
-        return dec
+        out = self.linear(dec)
+        return out
 
 
 # In[ ]:
@@ -454,7 +452,7 @@ class Solver:
             text_prob = torch.softmax(text_evals[0], dim=-1)
             text = text_prob.argmax(dim=-1)
             print(self.dataset.to_string(text1[0]))
-            print('===>>')
+            print('================>>>>')
             print(self.dataset.to_string(text))
             self.save_state(epoch)
         
