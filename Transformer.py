@@ -505,8 +505,34 @@ class Solver:
             
             print(f'Epoch[{self.epoch}] Loss({epoch_loss})')
                     
-            if not self.args.noresume:
+            if not self.argsgs.noresume:
                 self.save_resume()
+    
+    def translate(self, text):
+        tokenizer = Tokenizer()
+        text = list(tokenizer.tokenize(text.strip(), wakati=True))
+        
+        tokens1 = []
+        for t in text:
+            try:
+                tokens1 += [self.dataset.word2id[t]]
+            except:
+                tokens1 += [self.dataset.word2id['<unk>']]
+
+        tokens1 = [self.dataset.word2id['<s>']] + tokens1
+        tokens2 = [self.dataset.word2id['<s>']]
+        tokens1 = tokens1[:self.args.sentence_size]
+        tokens2 = tokens2[:self.args.sentence_size]
+        tokens1.extend([self.dataset.word2id['<pad>'] for _ in range(self.args.sentence_size - len(tokens1))])
+        tokens2.extend([self.dataset.word2id['<pad>'] for _ in range(self.args.sentence_size - len(tokens2))])
+        tokens1 = torch.LongTensor(tokens1).unsqueeze(0).to(self.device)
+        tokens2 = torch.LongTensor(tokens2).unsqueeze(0).to(self.device)
+
+        text_evals = self.transformer(tokens1, tokens2)
+        text_prob = torch.softmax(text_evals[0], dim=-1)
+        text = text_prob.argmax(dim=-1)
+            
+        print(self.dataset.to_string(text))
 
 
 # In[ ]:
@@ -519,6 +545,10 @@ def main(args):
     if not args.noresume:
         solver = solver.load_resume()
         solver.args = args
+
+    if args.translate != '':
+        solver.translate(args.translate)
+        return
     
     solver.train()
     
@@ -539,6 +569,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_train', type=int, default=10)
     parser.add_argument('--cpu', action='store_true')
     parser.add_argument('--noresume', action='store_true')
+    parser.add_argument('--translate', type=str, default='')
     
     args, unknown = parser.parse_known_args()
     
