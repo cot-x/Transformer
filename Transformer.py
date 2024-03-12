@@ -33,7 +33,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.autograd import Variable
 from torch.utils.data import Dataset, DataLoader
 
-import collections
+#import collections
 import pandas as pd
 from janome.tokenizer import Tokenizer
 
@@ -54,12 +54,14 @@ class TextData:
         
         eng = df.iloc[:, 1]
         jp = df.iloc[:, 2]
-        
-        self.texts1 = [s.split() for s in
-                       [' '.join(re.split('([' + string.punctuation + '])', t.strip())) for t in eng]]
-        
+
+        print('Load text1 from datasets.')
         tokenizer = Tokenizer()
-        self.texts2 = [list(tokenizer.tokenize(t.strip(), wakati=True)) for t in jp]
+        self.texts1 = [list(tokenizer.tokenize(t.strip(), wakati=True)) for t in tqdm(jp)]
+        
+        print('Load text2 from datasets.')
+        self.texts2 = [s.split() for s in
+                       [' '.join(re.split('([' + string.punctuation + '])', t.strip())) for t in tqdm(eng)]]
     
     def __getitem__(self, index):
         return list(self.texts1[index]), list(self.texts2[index])
@@ -77,14 +79,24 @@ class TextData:
 class TextDataset(Dataset):
     @staticmethod
     def make_vocab(text_data: TextData, vocab_size=None):
-        wc = collections.Counter(text_data.tolist())
+        print('Generate word-ids.')
         word2id = {}
         word2id['<pad>'] = 0
         word2id['<unk>'] = 1
         word2id['<s>'] = 2
-        for i, (w, _) in enumerate(wc.most_common(vocab_size), 3):
-            word2id[w] = i
+        
+        #wc = collections.Counter(text_data.tolist())
+        #for i, (w, _) in enumerate(wc.most_common(vocab_size), 3):
+        #    word2id[w] = i
+        
         id2word = {v: k for k, v in word2id.items()}
+        
+        for word in tqdm(text_data.tolist()):
+            if word not in word2id:
+                id = len(word2id)
+                word2id[word] = id
+                id2word[id] = word
+        
         return word2id, id2word
     
     def to_string(self, data):
