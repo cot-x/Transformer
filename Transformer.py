@@ -505,7 +505,7 @@ class Solver:
             
             print(f'Epoch[{self.epoch}] Loss({epoch_loss})')
                     
-            if not self.argsgs.noresume:
+            if not self.args.noresume:
                 self.save_resume()
     
     def translate(self, text):
